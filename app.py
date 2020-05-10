@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import sys
+import subprocess
 
 
 # Activation de système de log
@@ -44,4 +45,31 @@ elif not (os.path.isdir('inventory') and os.access('inventory', os.R_OK) and os.
   logging.critical("Le dossier inventory n'existe pas.")
   exit(1)
 
+# Chargement des roles et collections avec le fichier setup_env.sh s'il existe
+# Sinon, chargement des roles et collections à partir du requirements.yaml
+run_setup_env_nok = 1
+run_requirements_nok = 1
+
+if os.path.isfile('setup_env.sh') and os.access('setup_env.sh', os.R_OK):
+  logging.debug("Lancement de setup_env.sh.")
+  run_setup_env_nok = subprocess.run(['sh', 'setup_env.sh']).returncode
+  logging.debug("setup_env.sh a été lancé et la valeur de sortie obtenu est {}".format(run_setup_env_nok))
+else:
+  logging.debug("Le fichier setup_env.sh n'existe pas ou n'est pas lisible.")
+
+if run_setup_env_nok:
+  if not shutil.which('ansible-galaxy'):
+    logging.critical('ansible-galaxy ne semble pas présent')
+    exit(1)
+  requirements_file = yml_or_yaml('requirements')
+  if requirements_file and os.access(requirements_file, os.R_OK):
+    requirements_cmd = ['ansible-galaxy', 'install', '-p', './roles', '-r', requirements_file, '-f']
+    logging.debug("Lancement du chargement des roles et collections avec la commande {}".format(' '.join(requirements_cmd)))
+    run_requirements_nok = subprocess.run(requirements_cmd).returncode
+    logging.debug("ansible-galaxy a été lancé et la valeur de sortie obtenu est {}".format(run_requirements_nok))
+    if run_requirements_nok:
+      logging.critical("Le chargement des roles et collections depuis le fichier requirements a rencontré une erreur.")
+      exit(1)
+  else:
+    logging.warning("Le fichier requirements.yaml (ou .yml) n'existe pas ou n'est pas lisible.")
 
