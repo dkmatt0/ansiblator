@@ -84,22 +84,64 @@ class Ansiblator(cmd.Cmd):
     super().__init__(*args, **kwargs)
     self.intro = "\nBienvenue sur ansiblator !\n"
     self.prompt = "# "
-    self.aliases = {
-      'l'   : self.do_list,
-      'a'   : self.do_add,
-      'e'   : self.do_eadd,
-      'g'   : self.do_gadd,
-      'ge'  : self.do_geadd,
-      'r'   : self.do_rm,
-      'er'  : self.do_erm,
-      'gr'  : self.do_grm,
-      'ger' : self.do_germ,
-      't'   : self.do_tag,
-      'st'  : self.do_skiptag,
-      'go'  : self.do_deploy,
-      'exit': self.do_quit,
-      'q'   : self.do_quit
-    }
+    self.list_do_docstring = self.parse_do_docstring()
+    self.aliases = self.create_alias_from_docstring(self.list_do_docstring)
+    self.all_help = self.generate_help_all_cmd(self.list_do_docstring)
+
+  def parse_do_docstring(self):
+    """Renvoi un tableau à partir des docstring des fonctions"""
+    list_do_func = [a[3:] for a in self.get_names() if a.startswith('do_')]
+    list_do_docstring = []
+    for do_func in sorted(list_do_func):
+      lines = getattr(self, 'do_'+do_func).__doc__.splitlines()
+      description = lines[0].strip()
+      usage = ''
+      alias = ''
+      for l in lines:
+        if l.lstrip()[:5].lower() == 'usage':
+          usage = ''.join(l.split(':')[1:]).strip()
+        elif l.lstrip()[:5].lower() == 'alias':
+          alias = [x.strip() for x in ''.join(l.split(':')[1:]).split(',')]
+      list_do_docstring.append({
+        "cmd": do_func,
+        "description":description,
+        "usage": usage,
+        "alias": alias,
+      })
+    return list_do_docstring
+
+  def create_alias_from_docstring(self, parsed_docstring):
+    """Crée les alias des commandes à partir des docstring des fonctions"""
+    aliases = {}
+    for doc in parsed_docstring:
+      if len(doc['alias'])>0:
+        for a in doc['alias']:
+          aliases.update({a: getattr(self, 'do_'+doc['cmd'])})
+    return aliases
+
+  def generate_help_all_cmd(self, parsed_docstring):
+    """Renvoi le texte utilisé par l'aide pour toutes les commandes"""
+    max_n_chars = 0
+    printed_help = []
+    output = ''
+    for do_docstring in parsed_docstring:
+      usage_without_cmd = ' '.join(do_docstring["usage"].split(' ')[1:])
+      left = do_docstring['cmd']
+      left += ', '+', '.join(do_docstring['alias']) if len(do_docstring['alias'])>0 else ''
+      left += ' '+usage_without_cmd if usage_without_cmd else ''
+
+      n_chars = len(left)
+      if n_chars > max_n_chars: max_n_chars = n_chars
+
+      printed_help.append((left, do_docstring['description'], n_chars))
+
+    for h in printed_help:
+      output += h[0]
+      output +=  (max_n_chars - h[2] + 2)*' '
+      output +=  h[1]
+      output += '\n'
+
+    return output
 
   def emptyline(self):
     '''Action à lancer lors de la validation d'une ligne vide'''
@@ -116,93 +158,114 @@ class Ansiblator(cmd.Cmd):
       print("Commande \"{}\" inconnu.".format(line))
       print("Utilisez la commande \"help\" pour obtenir la liste des commandes disponibles.")
 
+  ## Définition des commande du shell interactif (par ordre alphabétique)
+
+  def do_add(self, arg):
+    '''Ajoute un serveur à la selection
+    Usage : add <serveur>
+    Alias : a'''
+    pass
+
+  def do_deploy(self, arg):
+    '''Déploie sur le ou les serveurs selectionnés
+    Usage : deploy
+    Alias : go'''
+    pass
+
+  def do_eadd(self, arg):
+    '''Ajoute un ou plusieurs serveurs à la selection selon une regex
+    Usage : eadd <regex serveur>
+    Alias : e'''
+    pass
+
+  def do_egadd(self, arg):
+    '''Ajoute les serveurs d'un groupe à la selection selon une regex
+    Usage : egadd <regex groupe>
+    Alias : ge'''
+    pass
+
+  def do_egrm(self, arg):
+    '''Supprime les serveurs d'un groupe de la selection selon une regex
+    Usage : egrm <regex groupe>
+    Alias : egr'''
+    pass
+
+  def do_erm(self, arg):
+    '''Supprime un ou plusieurs serveurs de la selection selon une regex
+    Usage : erm <regex serveur>
+    Alias : er'''
+    pass
+
+  def do_gadd(self, arg):
+    '''Ajoute les serveurs d'un groupe à la selection
+    Usage : gadd <groupe>
+    Alias : g'''
+    pass
+
+  def do_grm(self, arg):
+    '''Supprime les serveurs d'un groupe de la selection
+    Usage : grm <groupe>
+    Alias : gr'''
+    pass
+
   def do_help(self, arg):
     '''Affiche l'aide
-    Usage : help, ? [commande]'''
+    Usage : help [commande]
+    Alias : ?'''
     if arg != '':
       args = arg.split()
       if arg and args[0] in self.aliases:
         arg = self.aliases[args[0]].__name__[3:]
       super().do_help(arg)
     else:
-      print("list, l                          Liste les serveurs, groupe et variable")
-      print("add, a <serveur>                 Ajoute un serveur à la selection")
-      print("eadd, e <regex serveur>          Ajoute un ou plusieurs serveurs à la selection selon une regex")
-      print("gadd, g <groupe>                 Ajoute les serveurs d'un groupe à la selection")
-      print("geadd, ge <regex groupe>         Ajoute les serveurs d'un groupe à la selection selon une regex")
-      print("rm, r <serveur>                  Supprime un serveur de la selection")
-      print("erm, er <regex serveur>          Supprime un ou plusieurs serveurs de la selection selon une regex")
-      print("grm, gr <groupe>                 Supprime les serveurs d'un groupe de la selection")
-      print("germ, ger <regex groupe>         Supprime les serveurs d'un groupe de la selection selon une regex")
-      print("tag, t <tag> [<tag>...]          Applique un ou plusieurs tags lors du lancement du playbook")
-      print("skiptag, st <tag> [<tag>...]     Ignore un ou plusieurs tags lors du lancement du playbook")
-      print("deploy, go                       Déploie sur le ou les serveurs selectionnés")
-      print("quit, exit, q                    Quitte le shell (et le programme)")
+      print(self.all_help)
 
   def do_list(self, arg):
     '''Liste les serveurs, groupes et variables
-    Usage : list, l'''
-    pass
+    Usage : list
+    Alias : l'''
+    print('list')
 
-  def do_add(self, arg):
-    '''Ajoute un serveur à la selection
-    Usage : add, a <serveur>'''
-    pass
+  def do_quit(self, arg):
+    '''Quitte le shell (et le programme)
+    Usage : quit
+    Alias : exit, q'''
+    return True
 
-  def do_eadd(self, arg):
-    '''Ajoute un ou plusieurs serveurs à la selection selon une regex
-    Usage : eadd, e <regex serveur>'''
-    pass
-
-  def do_gadd(self, arg):
-    '''Ajoute les serveurs d'un groupe à la selection
-    Usage : gadd, g <groupe>'''
-    pass
-
-  def do_geadd(self, arg):
-    '''Ajoute les serveurs d'un groupe à la selection selon une regex
-    Usage : geadd, ge <regex groupe>'''
+  def do_reset(self, arg):
+    '''Supprime tous les réglages en cours
+    Usage : reset'''
     pass
 
   def do_rm(self, arg):
     '''Supprime un serveur de la selection
-    Usage : rm, r <serveur>'''
+    Usage : rm <serveur>
+    Alias : r'''
     pass
 
-  def do_erm(self, arg):
-    '''Supprime un ou plusieurs serveurs de la selection selon une regex
-    Usage : erm, er <regex serveur>'''
-    pass
-
-  def do_grm(self, arg):
-    '''Supprime les serveurs d'un groupe de la selection
-    Usage : grm, gr <groupe>'''
-    pass
-
-  def do_germ(self, arg):
-    '''Supprime les serveurs d'un groupe de la selection selon une regex
-    Usage : germ, ger <regex groupe>'''
-    pass
-
-  def do_tag(self, arg):
-    '''Applique un ou plusieurs tags lors du lancement du playbook
-    Usage : tag, t <tag> [<tag>...]'''
+  def do_show(self, arg):
+    '''Affiche les informations lié au déploiement en cours
+    Usage : show
+    Alias : s'''
     pass
 
   def do_skiptag(self, arg):
     '''Ignore un ou plusieurs tags lors du lancement du playbook
-    Usage : skiptag, st <tag> [<tag>...]'''
+    Usage : skiptag <tag> [<tag>...]
+    Alias : st'''
     pass
 
-  def do_deploy(self, arg):
-    '''Déploie sur le ou les serveurs selectionnés
-    Usage : deploy, go'''
+  def do_tag(self, arg):
+    '''Applique un ou plusieurs tags lors du lancement du playbook
+    Usage : tag <tag> [<tag>...]
+    Alias : t'''
     pass
 
-  def do_quit(self, arg):
-    '''Quitte le shell (et le programme)
-    Usage : quit, exit, q'''
-    return True
+  def do_tags(self, arg):
+    '''Affiche la liste des tags disponible
+    Usage : tags
+    Alias : lt'''
+    pass
 
 # Appel la classe qui lance le shell interactif (et donc le programme)
 Ansiblator().cmdloop()
