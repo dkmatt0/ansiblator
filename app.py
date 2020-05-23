@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import cmd
+import json
 import logging
 import os
 import readline
+import sh
 import shutil
 import subprocess
 import sys
@@ -32,7 +34,10 @@ def yml_or_yaml(filename):
 
 # Test si ansible est installé
 if not shutil.which("ansible-playbook"):
-  logging.critical("Vous devez d'abord installer ansible.")
+  logging.critical("'ansible-playbook' est absent. Vous devez d'abord installer ansible.")
+  exit(1)
+elif not shutil.which("ansible-inventory"):
+  logging.critical("'ansible-inventory' est absent. Vous devez d'abord installer ansible.")
   exit(1)
 
 # Test de tous les prérequis :
@@ -92,9 +97,8 @@ class Ansiblator(cmd.Cmd):
     super().__init__(*args, **kwargs)
     self.intro = "\nBienvenue sur ansiblator !\n"
     self.prompt = "# "
-    self.list_do_docstring = self.parse_do_docstring()
-    self.aliases = self.create_alias_from_docstring(self.list_do_docstring)
-    self.all_help = self.generate_help_all_cmd(self.list_do_docstring)
+    self.config = {"inventory": {}, "servers": [], "groups": [], "tags": []}
+    self.do_reset()
 
   def parse_do_docstring(self):
     """Renvoi un tableau à partir des docstring des fonctions"""
@@ -146,6 +150,70 @@ class Ansiblator(cmd.Cmd):
       output += "\n"
 
     return output
+
+  def search_all(self, items, list_all_items, data=None):
+    """Renvoi récursivement pour chaque éléments de la liste 'items' présent dans 'list_all_items', les valeurs
+    correspondante à 'items'.
+
+    Arguments :
+    items -- liste des élements à chercher dans 'list_all_items'.
+    list_all_items -- dictionnaire dont la valeur est un set contenant les dépendances de la clé.
+    data -- set contenant permettant le passage de la liste des dépendances durant la récursivité.
+    """
+    if data is None:
+      data = set()
+    if not isinstance(items, list):
+      items = list(items)
+    for item in items:
+      data.add(item)
+      if item in list_all_items:
+        data.update(self.search_all(list_all_items[item], list_all_items, data))
+    return data
+
+  def parse_inventory_file(self, inventory_path):
+    """Renvoi dans un dictionnaire l'ensemble des serveurs présent dans le fichier 'inventory_path' ainsi que les variable
+    et groupe dont chaque serveur fait parti.
+
+    Arguments :
+    inventory_path -- fichier d'inventaire ansible à analyser
+    """
+    ansible_inventory = sh.Command("ansible-inventory")
+    json_inventory = json.loads(ansible_inventory("-i", inventory_path, "--list").stdout)
+
+    hosts = {}
+    groups = {}
+    hostvars = {}
+    for name in json_inventory:
+      if "hosts" in json_inventory[name]:
+        for host in json_inventory[name]["hosts"]:
+          if host in hosts:
+            hosts[host].append(name)
+          else:
+            hosts[host] = [name]
+      elif "children" in json_inventory[name]:
+        for group in json_inventory[name]["children"]:
+          if group in groups:
+            groups[group].append(name)
+          else:
+            groups[group] = [name]
+      elif "hostvars" in json_inventory[name]:
+        hostvars = json_inventory[name]["hostvars"]
+    groups = {k: self.search_all(v, groups, set([k])) for (k, v) in groups.items()}
+    servers = {}
+    for host in hosts:
+      servers[host] = {"vars": hostvars.get(host, set()), "groups": groups.get(host, set())}
+    return servers
+
+  def list_inventory(self):
+    inventory_file = {}
+    for f in os.listdir("inventory"):
+      f_fullpath = os.sep.join(("inventory", f))
+      if os.path.isfile(f_fullpath) and os.access(f_fullpath, os.R_OK):
+        parsed_inventory_file = self.parse_inventory_file(f_fullpath)
+
+        if len(parsed_inventory_file) > 0:
+          inventory_file[f] = parsed_inventory_file
+    return inventory_file
 
   def emptyline(self):
     """Action à lancer lors de la validation d'une ligne vide"""
@@ -224,6 +292,19 @@ class Ansiblator(cmd.Cmd):
     else:
       print(self.all_help)
 
+  def do_inventory(self, arg):
+    """Affiche tout ou sélectionne l'un des fichiers d'inventaire disponible
+    Usage : inventory [<nom de fichier d'inventaire>]
+    Alias : inv, i"""
+    if arg in self.inventory:
+      self.do_reset()
+      self.config["inventory"] = self.inventory[arg]
+    elif not arg or arg not in self.inventory:
+      for inventory in self.inventory:
+        print(inventory)
+    else:
+      self.do_help("inventory")
+
   def do_list(self, arg):
     """Liste les serveurs, groupes et variables
     Usage : list
@@ -236,10 +317,10 @@ class Ansiblator(cmd.Cmd):
     Alias : exit, q"""
     return True
 
-  def do_reset(self, arg):
-    """Supprime tous les réglages en cours
+  def do_reset(self, arg=None):
+    """Réinitialise la sélection de serveurs, groupes et tags
     Usage : reset"""
-    pass
+    self.config = {"inventory": {}, "servers": [], "groups": [], "tags": []}
 
   def do_rm(self, arg):
     """Supprime un serveur de la selection
