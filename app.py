@@ -97,7 +97,9 @@ class Ansiblator(cmd.Cmd):
     super().__init__(*args, **kwargs)
     self.intro = "\nBienvenue sur ansiblator !\n"
     self.prompt = "# "
-    self.config = {"inventory": {}, "servers": [], "groups": [], "tags": []}
+    list_do_docstring = self.parse_do_docstring()
+    self.aliases = self.create_alias_from_docstring(list_do_docstring)
+    self.all_help = self.generate_help_all_cmd(list_do_docstring)
     self.do_reset()
 
   def parse_do_docstring(self):
