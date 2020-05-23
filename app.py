@@ -107,6 +107,8 @@ class Ansiblator(cmd.Cmd):
     list_do_func = [a[3:] for a in self.get_names() if a.startswith("do_")]
     list_do_docstring = []
     for do_func in sorted(list_do_func):
+      if not getattr(self, "do_" + do_func).__doc__:
+        continue
       lines = getattr(self, "do_" + do_func).__doc__.splitlines()
       description = lines[0].strip()
       usage = ""
