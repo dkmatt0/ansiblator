@@ -176,8 +176,8 @@ class Ansiblator(cmd.Cmd):
     return data
 
   def parse_inventory_file(self, inventory_path):
-    """Renvoi dans un dictionnaire l'ensemble des serveurs présent dans le fichier 'inventory_path' ainsi que les variable
-    et groupe dont chaque serveur fait parti.
+    """Renvoi dans un dictionnaire l'ensemble des serveurs présent dans le fichier 'inventory_path' ainsi que les variables
+    et groupes dont chaque serveur fait parti.
 
     Arguments :
     inventory_path -- fichier d'inventaire ansible à analyser
@@ -206,7 +206,10 @@ class Ansiblator(cmd.Cmd):
     groups = {k: self.search_all(v, groups, set([k])) for (k, v) in groups.items()}
     servers = {}
     for host in hosts:
-      servers[host] = {"vars": hostvars.get(host, set()), "groups": groups.get(host, set())}
+      hostgroups = set()
+      for hostgroup in hosts[host]:
+        hostgroups.update(groups.get(hostgroup, set()))
+      servers[host] = {"vars": hostvars.get(host, set()), "groups": hostgroups}
     return servers
 
   def list_inventory(self):
