@@ -300,6 +300,8 @@ class Ansiblator(cmd.Cmd):
     """Affiche tout ou sélectionne l'un des fichiers d'inventaire disponible
     Usage : inventory [<nom de fichier d'inventaire>]
     Alias : inv, i"""
+    if not hasattr(self, "inventory") or (hasattr(self, "inventory") and not arg):
+      self.inventory = self.list_inventory()
     if arg in self.inventory:
       self.do_reset()
       self.config["inventory"] = self.inventory[arg]
