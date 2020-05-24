@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from functools import wraps
 
 
 # Activation de système de log
@@ -234,50 +235,85 @@ class Ansiblator(cmd.Cmd):
       print('Commande "{}" inconnu.'.format(line))
       print('Utilisez la commande "help" pour obtenir la liste des commandes disponibles.')
 
+
+  ## Définition des décorateurs pour les commandes
+  def need_inventory(func):
+    """Décorateur permettant de vérifier si un fichier d'inventaire à été choisi avant lancement de la commande"""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+      if not self.config["inventory"]:
+        print("Vous devez d'abord sélectionner un fichier d'inventaire avec la commande 'inventory'.")
+      else:
+        func(self, *args, **kwargs)
+
+    return wrapper
+
+  def need_server(func):
+    """Décorateur permettant de vérifier si au moins un serveur à été choisi avant lancement de la commande"""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+      if not self.config["servers"]:
+        print("Aucun serveurs ou groupes de serveurs n'est sélectionné.")
+        print(
+          "Utilisez la commande 'help' voir la liste des commandes permettant l'ajout de serveurs ou de groupes de serveurs."
+        )
+      else:
+        func(self, *args, **kwargs)
+
+    return wrapper
+
   ## Définition des commandes du shell interactif (par ordre alphabétique)
 
+  @need_inventory
   def do_add(self, arg):
     """Ajoute un serveur à la selection
     Usage : add <serveur>
     Alias : a"""
     pass
 
+  @need_server
   def do_deploy(self, arg):
     """Déploie sur le ou les serveurs selectionnés
     Usage : deploy
     Alias : go"""
     pass
 
+  @need_inventory
   def do_eadd(self, arg):
     """Ajoute un ou plusieurs serveurs à la selection selon une regex
     Usage : eadd <regex serveur>
     Alias : e"""
     pass
 
+  @need_inventory
   def do_egadd(self, arg):
     """Ajoute les serveurs d'un groupe à la selection selon une regex
     Usage : egadd <regex groupe>
     Alias : ge"""
     pass
 
+  @need_server
   def do_egrm(self, arg):
     """Supprime les serveurs d'un groupe de la selection selon une regex
     Usage : egrm <regex groupe>
     Alias : egr"""
     pass
 
+  @need_server
   def do_erm(self, arg):
     """Supprime un ou plusieurs serveurs de la selection selon une regex
     Usage : erm <regex serveur>
     Alias : er"""
     pass
 
+  @need_inventory
   def do_gadd(self, arg):
     """Ajoute les serveurs d'un groupe à la selection
     Usage : gadd <groupe>
     Alias : g"""
     pass
 
+  @need_server
   def do_grm(self, arg):
     """Supprime les serveurs d'un groupe de la selection
     Usage : grm <groupe>
@@ -311,6 +347,7 @@ class Ansiblator(cmd.Cmd):
     else:
       self.do_help("inventory")
 
+  @need_inventory
   def do_list(self, arg):
     """Liste les serveurs, groupes et variables
     Usage : list
@@ -328,30 +365,35 @@ class Ansiblator(cmd.Cmd):
     Usage : reset"""
     self.config = {"inventory": {}, "servers": [], "groups": [], "tags": []}
 
+  @need_server
   def do_rm(self, arg):
     """Supprime un serveur de la selection
     Usage : rm <serveur>
     Alias : r"""
     pass
 
+  @need_inventory
   def do_show(self, arg):
     """Affiche les informations lié au déploiement en cours
     Usage : show
     Alias : s"""
     pass
 
+  @need_inventory
   def do_skiptag(self, arg):
     """Ignore un ou plusieurs tags lors du lancement du playbook
     Usage : skiptag <tag> [<tag>...]
     Alias : st"""
     pass
 
+  @need_inventory
   def do_tag(self, arg):
     """Applique un ou plusieurs tags lors du lancement du playbook
     Usage : tag <tag> [<tag>...]
     Alias : t"""
     pass
 
+  @need_inventory
   def do_tags(self, arg):
     """Affiche la liste des tags disponible
     Usage : tags
