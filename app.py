@@ -270,9 +270,15 @@ class Ansiblator(cmd.Cmd):
   @need_inventory
   def do_add(self, arg):
     """Ajoute un serveur à la selection
-    Usage : add <serveur>
+    Usage : add <serveur> [<serveur>...]
     Alias : a"""
-    pass
+    args = sorted(arg.split(" "))
+    for a in args:
+      if a in self.config["inventory"]:
+        self.config["servers"].append(a)
+        print("{} ajouté.".format(a))
+      else:
+        print("{} n'a pas été trouvé.".format(a))
 
   @need_server
   def do_deploy(self, arg):
@@ -355,7 +361,10 @@ class Ansiblator(cmd.Cmd):
     """Liste les serveurs, groupes et variables
     Usage : list
     Alias : l"""
-    print("list")
+    for host in self.config["inventory"]:
+      env = "" if "env" not in self.config["inventory"][host]["vars"] else self.config["inventory"][host]["vars"]["env"]
+      groups = ", ".join(sorted(self.config["inventory"][host]["groups"]))
+      print(host, "|", env, "|", groups)
 
   def do_quit(self, arg):
     """Quitte le shell (et le programme)
@@ -366,21 +375,63 @@ class Ansiblator(cmd.Cmd):
   def do_reset(self, arg=None):
     """Réinitialise la sélection de serveurs, groupes et tags
     Usage : reset"""
-    self.config = {"inventory": {}, "servers": [], "groups": [], "tags": []}
+    self.config = {"inventory": {}, "servers": [], "groups": [], "tags": [], "skiptags": []}
 
   @need_server
   def do_rm(self, arg):
     """Supprime un serveur de la selection
     Usage : rm <serveur>
     Alias : r"""
-    pass
+    args = sorted(arg.split(" "))
+    for a in args:
+      if a in self.config["inventory"]:
+        self.config["servers"].remove(a)
+        print("{} supprimé.".format(a))
+      else:
+        print("{} n'a pas été trouvé.".format(a))
 
   @need_inventory
   def do_show(self, arg):
     """Affiche les informations lié au déploiement en cours
     Usage : show
     Alias : s"""
-    pass
+    servers_from_groups = {}
+    for host in self.config["servers"]:
+      for group in self.config["groups"]:
+        if group in self.config["servers"][host]["groups"]:
+          if host in servers_from_groups:
+            servers_from_groups[host].append(group)
+          else:
+            servers_from_groups[host] = group
+    n_servers = len(self.config["servers"])
+    n_servers_from_groups = len(servers_from_groups)
+    n_tags = len(self.config["tags"])
+    n_skiptags = len(self.config["skiptags"])
+    print("Serveurs : ", end="")
+    if n_servers > 0:
+      print("")
+      for s in sorted(self.config["servers"]):
+        if s not in servers_from_groups:
+          print("  {}".format(s))
+    else:
+      print("❌")
+    print("Serveurs depuis groupes : ", end="")
+    if n_servers_from_groups > 0:
+      print("")
+      for s in servers_from_groups:
+        print("  {} (depuis {})".format(s, ", ".sorted(servers_from_groups[s])))
+    else:
+      print("❌")
+    print("Tags : ", end="")
+    if n_tags > 0:
+      print(", ".join(sorted(self.config["tags"])))
+    else:
+      print("❌")
+    print("Skiptags : ", end="")
+    if n_skiptags > 0:
+      print(", ".join(sorted(self.config["skiptags"])))
+    else:
+      print("❌")
 
   @need_inventory
   def do_skiptag(self, arg):
