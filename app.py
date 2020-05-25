@@ -341,7 +341,7 @@ class Ansiblator(cmd.Cmd):
     else:
       print(self.all_help)
 
-  def do_inventory(self, arg):
+  def do_inventory(self, arg=""):
     """Affiche tout ou sélectionne l'un des fichiers d'inventaire disponible
     Usage : inventory [<nom de fichier d'inventaire>]
     Alias : inv, i"""
@@ -350,11 +350,12 @@ class Ansiblator(cmd.Cmd):
     if arg in self.inventory:
       self.do_reset()
       self.config["inventory"] = self.inventory[arg]
-    elif not arg or arg not in self.inventory:
+    elif not arg:
       for inventory in self.inventory:
         print(inventory)
-    else:
-      self.do_help("inventory")
+    else: # arg not in self.inventory:
+      print("'{}' n'a pas été trouvé. Voici les choix valides possibles :".format(arg))
+      self.do_inventory()
 
   @need_inventory
   def do_list(self, arg):
