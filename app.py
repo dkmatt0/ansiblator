@@ -379,13 +379,13 @@ class Ansiblator(cmd.Cmd):
     self.config = {"inventory": {}, "servers": [], "groups": [], "tags": [], "skiptags": []}
 
   @need_server
-  def do_rm(self, arg):
+  def do_remove(self, arg):
     """Supprime un serveur de la selection
-    Usage : rm <serveur>
-    Alias : r"""
+    Usage : remove <serveur>
+    Alias : rm, r"""
     args = sorted(arg.split(" "))
     for a in args:
-      if a in self.config["inventory"]:
+      if a in self.config["servers"]:
         self.config["servers"].remove(a)
         print("{} supprimé.".format(a))
       else:
