@@ -4,6 +4,7 @@ import cmd
 import json
 import logging
 import os
+import re
 import readline
 import sh
 import shutil
@@ -295,28 +296,64 @@ class Ansiblator(cmd.Cmd):
     """Ajoute un ou plusieurs serveurs à la selection selon une regex
     Usage : eadd <regex serveur>
     Alias : e"""
-    pass
+    args = sorted(arg.split(" "))
+    no_action = True
+    for a in args:
+      for server in self.config["inventory"]["servers"]:
+        if re.search(a, server):
+          self.config["servers"].append(server)
+          print("{} ajouté.".format(server))
+          no_action=False
+    if no_action:
+      print("Aucun serveur n'a pas été ajouté.")
 
   @need_inventory
   def do_egadd(self, arg):
     """Ajoute les serveurs d'un groupe à la selection selon une regex
     Usage : egadd <regex groupe>
-    Alias : ge"""
-    pass
+    Alias : eg"""
+    args = sorted(arg.split(" "))
+    no_action = True
+    for a in args:
+      for group in self.config["inventory"]["groups"]:
+        if re.search(a, group):
+          self.config["groups"].append(group)
+          print("{} ajouté.".format(group))
+          no_action=False
+    if no_action:
+      print("Aucun groupe n'a pas été ajouté.")
 
   @need_server
-  def do_egrm(self, arg):
+  def do_egremove(self, arg):
     """Supprime les serveurs d'un groupe de la selection selon une regex
     Usage : egrm <regex groupe>
     Alias : egr"""
-    pass
+    args = sorted(arg.split(" "))
+    no_action = True
+    for a in args:
+      for group in self.config["groups"]:
+        if re.search(a, group):
+          self.config["groups"].remove(group)
+          print("{} supprimé.".format(group))
+          no_action=False
+    if no_action:
+      print("Aucun groupe n'a pas été supprimé.")
 
   @need_server
-  def do_erm(self, arg):
+  def do_eremove(self, arg):
     """Supprime un ou plusieurs serveurs de la selection selon une regex
-    Usage : erm <regex serveur>
-    Alias : er"""
-    pass
+    Usage : eremove <regex serveur>
+    Alias : erm, er"""
+    args = sorted(arg.split(" "))
+    no_action = True
+    for a in args:
+      for server in self.config["inventory"]["servers"]:
+        if re.search(a, server):
+          self.config["servers"].remove(server)
+          print("{} supprimé.".format(server))
+          no_action=False
+    if no_action:
+      print("Aucun serveur n'a pas été supprimé.")
 
   @need_inventory
   def do_gadd(self, arg):
