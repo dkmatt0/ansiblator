@@ -176,8 +176,8 @@ class Ansiblator(cmd.Cmd):
     return data
 
   def parse_inventory_file(self, inventory_path):
-    """Renvoi dans un dictionnaire l'ensemble des serveurs présent dans le fichier 'inventory_path' ainsi que les variables
-    et groupes dont chaque serveur fait parti.
+    """Renvoi dans un dictionnaire l'ensemble des serveurs présent dans le fichier 'inventory_path' avec les variables et
+    groupes dont chaque serveur fait parti ainsi que l'ensembles des groupes disponibles avec les groupes dont ils dépendent.
 
     Arguments :
     inventory_path -- fichier d'inventaire ansible à analyser
@@ -196,6 +196,8 @@ class Ansiblator(cmd.Cmd):
           else:
             hosts[host] = [name]
       elif "children" in json_inventory[name]:
+        if name not in groups:
+          groups[name] = []
         for group in json_inventory[name]["children"]:
           if group in groups:
             groups[group].append(name)
@@ -203,16 +205,17 @@ class Ansiblator(cmd.Cmd):
             groups[group] = [name]
       elif "hostvars" in json_inventory[name]:
         hostvars = json_inventory[name]["hostvars"]
-    groups = {k: self.search_all(v, groups, set([k])) for (k, v) in groups.items()}
+    groups_all = {k: self.search_all(v, groups, set([k])) for (k, v) in groups.items()}
     servers = {}
     for host in hosts:
       hostgroups = set()
       for hostgroup in hosts[host]:
-        hostgroups.update(groups.get(hostgroup, set()))
+        hostgroups.update(groups_all.get(hostgroup, set()))
       servers[host] = {"vars": hostvars.get(host, set()), "groups": hostgroups}
-    return servers
+    return {"servers": servers, "groups": groups}
 
   def list_inventory(self):
+    """Liste les différents fichiers d'inventaire et leurs contenu."""
     inventory_file = {}
     for f in os.listdir("inventory"):
       f_fullpath = os.sep.join(("inventory", f))
@@ -238,10 +241,10 @@ class Ansiblator(cmd.Cmd):
       print('Commande "{}" inconnu.'.format(line))
       print('Utilisez la commande "help" pour obtenir la liste des commandes disponibles.')
 
-
   ## Définition des décorateurs pour les commandes
   def need_inventory(func):
     """Décorateur permettant de vérifier si un fichier d'inventaire à été choisi avant lancement de la commande"""
+
     @wraps(func)
     def wrapper(self, *args, **kwargs):
       if not self.config["inventory"]:
@@ -253,9 +256,10 @@ class Ansiblator(cmd.Cmd):
 
   def need_server(func):
     """Décorateur permettant de vérifier si au moins un serveur à été choisi avant lancement de la commande"""
+
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-      if not self.config["servers"]:
+      if not self.config["servers"] and not self.config["groups"]:
         print("Aucun serveurs ou groupes de serveurs n'est sélectionné.")
         print(
           "Utilisez la commande 'help' voir la liste des commandes permettant l'ajout de serveurs ou de groupes de serveurs."
@@ -266,7 +270,6 @@ class Ansiblator(cmd.Cmd):
     return wrapper
 
   ## Définition des commandes du shell interactif (par ordre alphabétique)
-
   @need_inventory
   def do_add(self, arg):
     """Ajoute un serveur à la selection
@@ -274,7 +277,7 @@ class Ansiblator(cmd.Cmd):
     Alias : a"""
     args = sorted(arg.split(" "))
     for a in args:
-      if a in self.config["inventory"]:
+      if a in self.config["inventory"]["servers"]:
         self.config["servers"].append(a)
         print("{} ajouté.".format(a))
       else:
@@ -320,14 +323,26 @@ class Ansiblator(cmd.Cmd):
     """Ajoute les serveurs d'un groupe à la selection
     Usage : gadd <groupe>
     Alias : g"""
-    pass
+    args = sorted(arg.split(" "))
+    for a in args:
+      if a in self.config["inventory"]["groups"]:
+        self.config["groups"].append(a)
+        print("{} ajouté.".format(a))
+      else:
+        print("{} n'a pas été trouvé.".format(a))
 
   @need_server
-  def do_grm(self, arg):
+  def do_gremove(self, arg):
     """Supprime les serveurs d'un groupe de la selection
-    Usage : grm <groupe>
-    Alias : gr"""
-    pass
+    Usage : gremove <groupe>
+    Alias : grm, gr"""
+    args = sorted(arg.split(" "))
+    for a in args:
+      if a in self.config["groups"]:
+        self.config["groups"].remove(a)
+        print("{} supprimé.".format(a))
+      else:
+        print("{} n'a pas été trouvé.".format(a))
 
   def do_help(self, arg):
     """Affiche l'aide
@@ -362,9 +377,13 @@ class Ansiblator(cmd.Cmd):
     """Liste les serveurs, groupes et variables
     Usage : list
     Alias : l"""
-    for host in self.config["inventory"]:
-      env = "" if "env" not in self.config["inventory"][host]["vars"] else self.config["inventory"][host]["vars"]["env"]
-      groups = ", ".join(sorted(self.config["inventory"][host]["groups"]))
+    for host in self.config["inventory"]["servers"]:
+      env = (
+        ""
+        if "env" not in self.config["inventory"]["servers"][host]["vars"]
+        else self.config["inventory"]["servers"][host]["vars"]["env"]
+      )
+      groups = ", ".join(sorted(self.config["inventory"]["servers"][host]["groups"]))
       print(host, "|", env, "|", groups)
 
   def do_quit(self, arg):
@@ -397,13 +416,13 @@ class Ansiblator(cmd.Cmd):
     Usage : show
     Alias : s"""
     servers_from_groups = {}
-    for host in self.config["servers"]:
-      for group in self.config["groups"]:
-        if group in self.config["servers"][host]["groups"]:
+    for group in self.config["groups"]:
+      for host in self.config["inventory"]["servers"]:
+        if group in self.config["inventory"]["servers"][host]["groups"]:
           if host in servers_from_groups:
             servers_from_groups[host].append(group)
           else:
-            servers_from_groups[host] = group
+            servers_from_groups[host] = [group]
     n_servers = len(self.config["servers"])
     n_servers_from_groups = len(servers_from_groups)
     n_tags = len(self.config["tags"])
@@ -420,7 +439,7 @@ class Ansiblator(cmd.Cmd):
     if n_servers_from_groups > 0:
       print("")
       for s in servers_from_groups:
-        print("  {} (depuis {})".format(s, ", ".sorted(servers_from_groups[s])))
+        print("  {} (depuis {})".format(s, ", ".join(sorted(servers_from_groups[s]))))
     else:
       print("❌")
     print("Tags : ", end="")
