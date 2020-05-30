@@ -34,6 +34,30 @@ def yml_or_yaml(filename):
   return None
 
 
+def sortedn(l):
+  """Trie une liste de chaîne de caractères en tenant compte des nombre
+
+  Exemple :
+    sorted(["a34", "a3", "a52", "a6", "a5"])  => ['a3', 'a34', 'a5', 'a52', 'a6']
+    sortedn(["a34", "a3", "a52", "a6", "a5"]) => ['a3', 'a5', 'a6', 'a34', 'a52']
+
+  Arguments :
+  l -- Liste à trier
+  """
+  l = list(l)
+  for i, x in enumerate(l):
+    z = []
+    for y in re.split("(\d+)", x):
+      if re.match("^(\d+)$", y):
+        y = int(y)
+      z.append(y)
+    l[i] = z
+  l.sort()
+  for i, x in enumerate(l):
+    l[i] = "".join([str(y) for y in x])
+  return l
+
+
 # Test si ansible est installé
 if not shutil.which("ansible-playbook"):
   logging.critical("'ansible-playbook' est absent. Vous devez d'abord installer ansible.")
@@ -103,6 +127,7 @@ class Ansiblator(cmd.Cmd):
     self.aliases = self.create_alias_from_docstring(list_do_docstring)
     self.all_help = self.generate_help_all_cmd(list_do_docstring)
     self.do_reset()
+    self.do_reload()
 
   def parse_do_docstring(self):
     """Renvoi un tableau à partir des docstring des fonctions"""
@@ -213,19 +238,27 @@ class Ansiblator(cmd.Cmd):
       for hostgroup in hosts[host]:
         hostgroups.update(groups_all.get(hostgroup, set()))
       servers[host] = {"vars": hostvars.get(host, set()), "groups": hostgroups}
-    return {"servers": servers, "groups": groups}
+    return (servers, groups)
 
-  def list_inventory(self):
-    """Liste les différents fichiers d'inventaire et leurs contenu."""
-    inventory_file = {}
-    for f in os.listdir("inventory"):
-      f_fullpath = os.sep.join(("inventory", f))
-      if os.path.isfile(f_fullpath) and os.access(f_fullpath, os.R_OK):
-        parsed_inventory_file = self.parse_inventory_file(f_fullpath)
-
-        if len(parsed_inventory_file) > 0:
-          inventory_file[f] = parsed_inventory_file
-    return inventory_file
+  # def list_inventory(self):
+  #   """Liste les différents fichiers d'inventaire et leurs contenu."""
+  #   files, servers, groups = [], {}, {}
+  #   for f in os.listdir("inventory"):
+  #     f_fullpath = os.sep.join(("inventory", f))
+  #     if os.path.isfile(f_fullpath) and os.access(f_fullpath, os.R_OK):
+  #       server, group = self.parse_inventory_file(f_fullpath)
+  #       if len(server) > 0:
+  #         tags = set()
+  #         ansible_playbook = sh.Command("ansible-playbook")
+  #         playbook_main = yml_or_yaml("main")
+  #         tags_text = str(ansible_playbook("-i", f_fullpath, "--list-tags", playbook_main))
+  #         for regex_tags in re.finditer("TASK TAGS: \[([\w\-, ]+)\]", tags_text):
+  #           tags.update(regex_tags.group(1).split(", "))
+  #         tags = sorted([[int(y) if re.match("^(\d+)$", y) else y for y in re.split("(\d+)", x)] for x in tags])
+  #         tags = ["".join([str(y) for y in x]) for x in tags]
+  #         servers[f], groups[f] = server, group
+  #         files.append(f)
+  #   return files, servers[f], groups[f]
 
   def emptyline(self):
     """Action à lancer lors de la validation d'une ligne vide"""
@@ -248,7 +281,7 @@ class Ansiblator(cmd.Cmd):
 
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-      if not self.config["inventory"]:
+      if not self.selected["file"] or self.selected["file"] not in self.available["files"]:
         print("Vous devez d'abord sélectionner un fichier d'inventaire avec la commande 'inventory'.")
       else:
         func(self, *args, **kwargs)
@@ -260,7 +293,7 @@ class Ansiblator(cmd.Cmd):
 
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-      if not self.config["servers"] and not self.config["groups"]:
+      if not self.selected["servers"] and not self.selected["groups"]:
         print("Aucun serveurs ou groupes de serveurs n'est sélectionné.")
         print(
           "Utilisez la commande 'help' voir la liste des commandes permettant l'ajout de serveurs ou de groupes de serveurs."
@@ -278,8 +311,8 @@ class Ansiblator(cmd.Cmd):
     Alias : a"""
     args = sorted(arg.split(" "))
     for a in args:
-      if a in self.config["inventory"]["servers"]:
-        self.config["servers"].append(a)
+      if a in self.available["servers"][self.selected["file"]]:
+        self.selected["servers"].add(a)
         print("{} ajouté.".format(a))
       else:
         print("{} n'a pas été trouvé.".format(a))
@@ -299,11 +332,11 @@ class Ansiblator(cmd.Cmd):
     args = sorted(arg.split(" "))
     no_action = True
     for a in args:
-      for server in self.config["inventory"]["servers"]:
+      for server in self.available["servers"][self.selected["file"]]:
         if re.search(a, server):
-          self.config["servers"].append(server)
+          self.selected["servers"].add(server)
           print("{} ajouté.".format(server))
-          no_action=False
+          no_action = False
     if no_action:
       print("Aucun serveur n'a pas été ajouté.")
 
@@ -315,27 +348,27 @@ class Ansiblator(cmd.Cmd):
     args = sorted(arg.split(" "))
     no_action = True
     for a in args:
-      for group in self.config["inventory"]["groups"]:
+      for group in self.available["groups"][self.selected["file"]]:
         if re.search(a, group):
-          self.config["groups"].append(group)
+          self.selected["groups"].add(group)
           print("{} ajouté.".format(group))
-          no_action=False
+          no_action = False
     if no_action:
       print("Aucun groupe n'a pas été ajouté.")
 
   @need_server
   def do_egremove(self, arg):
     """Supprime les serveurs d'un groupe de la selection selon une regex
-    Usage : egrm <regex groupe>
-    Alias : egr"""
+    Usage : egremove <regex groupe>
+    Alias : egrm, egr"""
     args = sorted(arg.split(" "))
     no_action = True
     for a in args:
-      for group in self.config["groups"]:
+      for group in self.available["groups"][self.selected["file"]]:
         if re.search(a, group):
-          self.config["groups"].remove(group)
+          self.selected["groups"].remove(group)
           print("{} supprimé.".format(group))
-          no_action=False
+          no_action = False
     if no_action:
       print("Aucun groupe n'a pas été supprimé.")
 
@@ -347,11 +380,11 @@ class Ansiblator(cmd.Cmd):
     args = sorted(arg.split(" "))
     no_action = True
     for a in args:
-      for server in self.config["inventory"]["servers"]:
+      for server in self.available["servers"][self.selected["file"]]:
         if re.search(a, server):
-          self.config["servers"].remove(server)
+          self.selected["servers"].remove(server)
           print("{} supprimé.".format(server))
-          no_action=False
+          no_action = False
     if no_action:
       print("Aucun serveur n'a pas été supprimé.")
 
@@ -362,8 +395,9 @@ class Ansiblator(cmd.Cmd):
     Alias : g"""
     args = sorted(arg.split(" "))
     for a in args:
-      if a in self.config["inventory"]["groups"]:
-        self.config["groups"].append(a)
+      if a in self.available["groups"][self.selected["file"]]:
+        print(self.selected["groups"])
+        self.selected["groups"].add(a)
         print("{} ajouté.".format(a))
       else:
         print("{} n'a pas été trouvé.".format(a))
@@ -375,8 +409,8 @@ class Ansiblator(cmd.Cmd):
     Alias : grm, gr"""
     args = sorted(arg.split(" "))
     for a in args:
-      if a in self.config["groups"]:
-        self.config["groups"].remove(a)
+      if a in self.selected["groups"]:
+        self.selected["groups"].remove(a)
         print("{} supprimé.".format(a))
       else:
         print("{} n'a pas été trouvé.".format(a))
@@ -385,7 +419,7 @@ class Ansiblator(cmd.Cmd):
     """Affiche l'aide
     Usage : help [commande]
     Alias : ?"""
-    if arg != "":
+    if arg:
       args = arg.split()
       if arg and args[0] in self.aliases:
         arg = self.aliases[args[0]].__name__[3:]
@@ -397,15 +431,13 @@ class Ansiblator(cmd.Cmd):
     """Affiche tout ou sélectionne l'un des fichiers d'inventaire disponible
     Usage : inventory [<nom de fichier d'inventaire>]
     Alias : inv, i"""
-    if not hasattr(self, "inventory") or (hasattr(self, "inventory") and not arg):
-      self.inventory = self.list_inventory()
-    if arg in self.inventory:
-      self.do_reset()
-      self.config["inventory"] = self.inventory[arg]
+    if arg in self.available["files"]:
+      # self.do_reset()
+      self.selected["file"] = arg
     elif not arg:
-      for inventory in self.inventory:
+      for inventory in sorted(self.available["files"]):
         print(inventory)
-    else: # arg not in self.inventory:
+    else:
       print("'{}' n'a pas été trouvé. Voici les choix valides possibles :".format(arg))
       self.do_inventory()
 
@@ -414,13 +446,12 @@ class Ansiblator(cmd.Cmd):
     """Liste les serveurs, groupes et variables
     Usage : list
     Alias : l"""
-    for host in self.config["inventory"]["servers"]:
-      env = (
-        ""
-        if "env" not in self.config["inventory"]["servers"][host]["vars"]
-        else self.config["inventory"]["servers"][host]["vars"]["env"]
-      )
-      groups = ", ".join(sorted(self.config["inventory"]["servers"][host]["groups"]))
+    for host in self.available["servers"][self.selected["file"]]:
+      if "env" in self.available["servers"][self.selected["file"]][host]["vars"]:
+        env = self.available["servers"][self.selected["file"]][host]["vars"]["env"]
+      else:
+        env = ""
+      groups = ", ".join(sorted(self.available["servers"][self.selected["file"]][host]["groups"]))
       print(host, "|", env, "|", groups)
 
   def do_quit(self, arg):
@@ -429,10 +460,27 @@ class Ansiblator(cmd.Cmd):
     Alias : exit, q"""
     return True
 
-  def do_reset(self, arg=None):
-    """Réinitialise la sélection de serveurs, groupes et tags
-    Usage : reset"""
-    self.config = {"inventory": {}, "servers": [], "groups": [], "tags": [], "skiptags": []}
+  def do_reload(self, arg=""):
+    """Charge ou recharge les serveurs, groupes et tags disponibles
+    Usage : reload
+    """
+    self.available = {"files": {}, "servers": {}, "groups": {}, "tags": {}}
+
+    for f in os.listdir("inventory"):
+      f_fullpath = os.sep.join(("inventory", f))
+      if os.path.isfile(f_fullpath) and os.access(f_fullpath, os.R_OK):
+        servers, groups = self.parse_inventory_file(f_fullpath)
+        if len(servers) > 0:
+          tags = set()
+          ansible_playbook = sh.Command("ansible-playbook")
+          playbook_main = yml_or_yaml("main")
+          tags_text = str(ansible_playbook("-i", f_fullpath, "--list-tags", playbook_main))
+          for regex_tags in re.finditer("TASK TAGS: \[([\w\-, ]+)\]", tags_text):
+            tags.update(regex_tags.group(1).split(", "))
+          self.available["files"][f] = f_fullpath
+          self.available["servers"][f] = servers
+          self.available["groups"][f] = groups
+          self.available["tags"][f] = tags
 
   @need_server
   def do_remove(self, arg):
@@ -441,11 +489,16 @@ class Ansiblator(cmd.Cmd):
     Alias : rm, r"""
     args = sorted(arg.split(" "))
     for a in args:
-      if a in self.config["servers"]:
-        self.config["servers"].remove(a)
+      if a in self.selected["servers"]:
+        self.selected["servers"].remove(a)
         print("{} supprimé.".format(a))
       else:
         print("{} n'a pas été trouvé.".format(a))
+
+  def do_reset(self, arg=None):
+    """Réinitialise la sélection de serveurs, groupes et tags
+    Usage : reset"""
+    self.selected = {"file": "", "servers": set(), "groups": set(), "tags": set(), "skiptags": set()}
 
   @need_inventory
   def do_show(self, arg):
@@ -453,21 +506,21 @@ class Ansiblator(cmd.Cmd):
     Usage : show
     Alias : s"""
     servers_from_groups = {}
-    for group in self.config["groups"]:
-      for host in self.config["inventory"]["servers"]:
-        if group in self.config["inventory"]["servers"][host]["groups"]:
+    for group in self.selected["groups"]:
+      for host in self.available["servers"][self.selected["file"]]:
+        if group in self.available["servers"][self.selected["file"]][host]["groups"]:
           if host in servers_from_groups:
             servers_from_groups[host].append(group)
           else:
             servers_from_groups[host] = [group]
-    n_servers = len(self.config["servers"])
+    n_servers = len(self.selected["servers"])
     n_servers_from_groups = len(servers_from_groups)
-    n_tags = len(self.config["tags"])
-    n_skiptags = len(self.config["skiptags"])
+    n_tags = len(self.selected["tags"])
+    n_skiptags = len(self.selected["skiptags"])
     print("Serveurs : ", end="")
     if n_servers > 0:
       print("")
-      for s in sorted(self.config["servers"]):
+      for s in sortedn(self.selected["servers"]):
         if s not in servers_from_groups:
           print("  {}".format(s))
     else:
@@ -476,40 +529,53 @@ class Ansiblator(cmd.Cmd):
     if n_servers_from_groups > 0:
       print("")
       for s in servers_from_groups:
-        print("  {} (depuis {})".format(s, ", ".join(sorted(servers_from_groups[s]))))
+        print("  {} (depuis {})".format(s, ", ".join(sortedn(servers_from_groups[s]))))
     else:
       print("❌")
     print("Tags : ", end="")
     if n_tags > 0:
-      print(", ".join(sorted(self.config["tags"])))
+      print(", ".join(sortedn(self.selected["tags"])))
     else:
       print("❌")
     print("Skiptags : ", end="")
     if n_skiptags > 0:
-      print(", ".join(sorted(self.config["skiptags"])))
+      print(", ".join(sortedn(self.selected["skiptags"])))
     else:
       print("❌")
 
   @need_inventory
   def do_skiptag(self, arg):
     """Ignore un ou plusieurs tags lors du lancement du playbook
-    Usage : skiptag <tag> [<tag>...]
-    Alias : st"""
-    pass
-
-  @need_inventory
-  def do_tag(self, arg):
-    """Applique un ou plusieurs tags lors du lancement du playbook
-    Usage : tag <tag> [<tag>...]
-    Alias : t"""
+    Usage : skiptags [<tag> [<tag>...]]
+    Alias : skiptag, st"""
     pass
 
   @need_inventory
   def do_tags(self, arg):
-    """Affiche la liste des tags disponible
-    Usage : tags
-    Alias : lt"""
-    pass
+    """Affiche la liste des tags ou applique un ou plusieurs tags lors du lancement du playbook
+    Usage : tags [<tag> [<tag>...]]
+    Alias : tag, t"""
+    if not arg:
+      for tag in sortedn(self.available["tags"][self.selected["file"]]):
+        if tag in self.selected["tags"]:
+          print(f"{tag} *")
+        else:
+          print(f"{tag}")
+    else:
+      args = sortedn(arg.split(" "))
+      for a in args:
+        if a in self.available["tags"][self.selected["file"]]:
+          self.selected["tags"].add(a)
+          print("{} ajouté.".format(a))
+        else:
+          print("{} n'a pas été trouvé.".format(a))
+
+  def do_debug(self, arg):
+    arg = arg.strip()
+    if arg and hasattr(self, arg):
+      print(getattr(self, arg))
+    else:
+      print("error!")
 
 
 # Appel la classe qui lance le shell interactif (et donc le programme)
