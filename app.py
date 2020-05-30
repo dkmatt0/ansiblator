@@ -548,7 +548,22 @@ class Ansiblator(cmd.Cmd):
     """Ignore un ou plusieurs tags lors du lancement du playbook
     Usage : skiptags [<tag> [<tag>...]]
     Alias : skiptag, st"""
-    pass
+    if not arg:
+      for tag in sortedn(self.available["tags"][self.selected["file"]]):
+        if tag in self.selected["skiptags"]:
+          print(f"{tag} *")
+        else:
+          print(f"{tag}")
+    else:
+      args = sortedn(arg.split(" "))
+      for a in args:
+        if a in self.available["tags"][self.selected["file"]]:
+          if a in self.selected["tags"]:
+            self.selected["tags"].remove(a)
+          self.selected["skiptags"].add(a)
+          print("{} ajouté.".format(a))
+        else:
+          print("{} n'a pas été trouvé.".format(a))
 
   @need_inventory
   def do_tags(self, arg):
@@ -565,6 +580,8 @@ class Ansiblator(cmd.Cmd):
       args = sortedn(arg.split(" "))
       for a in args:
         if a in self.available["tags"][self.selected["file"]]:
+          if a in self.selected["skiptags"]:
+            self.selected["skiptags"].remove(a)
           self.selected["tags"].add(a)
           print("{} ajouté.".format(a))
         else:
