@@ -6,7 +6,6 @@ import logging
 import os
 import re
 import readline
-import sh
 import shutil
 import subprocess
 import sys
@@ -208,9 +207,14 @@ class Ansiblator(cmd.Cmd):
     Arguments :
     inventory_path -- fichier d'inventaire ansible à analyser
     """
-    ansible_inventory = sh.Command("ansible-inventory")
-    json_inventory = json.loads(ansible_inventory("-i", inventory_path, "--list").stdout)
-
+    json_inventory = json.loads(
+      subprocess.run(
+        ("ansible-inventory", "-i", inventory_path, "--list"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        universal_newlines=True,
+      ).stdout
+    )
     hosts = {}
     groups = {}
     hostvars = {}
@@ -322,7 +326,24 @@ class Ansiblator(cmd.Cmd):
     """Déploie sur le ou les serveurs selectionnés
     Usage : deploy
     Alias : go"""
-    pass
+    self.do_show()
+
+    cmd = "ansible-playbook --inventory " + self.available["files"][self.selected["file"]]
+    if self.selected["servers"] or self.selected["groups"]:
+      cmd += " --limit {}".format(",".join(self.selected["servers"] | self.selected["groups"]))
+    if self.selected["tags"]:
+      cmd += " --tags {}".format(",".join(self.selected["tags"]))
+    if self.selected["skiptags"]:
+      cmd += " --skip-tags {}".format(",".join(self.selected["skiptags"]))
+    playbook_file = yml_or_yaml("main")
+    cmd += " " + playbook_file
+    print("Commande : " + cmd)
+    print()
+    user_answer = input("Êtes-vous sûr ? (oui/NON) : ").strip().lower()
+    if (len(user_answer)==3 and user_answer in('yes', 'oui')) or (len(user_answer)==1 and user_answer in('y', 'o')):
+      subprocess.run(cmd.split(" "))
+    else:
+      print("Déploiement annulé !")
 
   @need_inventory
   def do_eadd(self, arg):
@@ -472,9 +493,13 @@ class Ansiblator(cmd.Cmd):
         servers, groups = self.parse_inventory_file(f_fullpath)
         if len(servers) > 0:
           tags = set()
-          ansible_playbook = sh.Command("ansible-playbook")
           playbook_main = yml_or_yaml("main")
-          tags_text = str(ansible_playbook("-i", f_fullpath, "--list-tags", playbook_main))
+          tags_text = subprocess.run(
+            ("ansible-playbook", "-i", f_fullpath, "--list-tags", playbook_main),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            universal_newlines=True,
+          ).stdout
           for regex_tags in re.finditer("TASK TAGS: \[([\w\-, ]+)\]", tags_text):
             tags.update(regex_tags.group(1).split(", "))
           self.available["files"][f] = f_fullpath
@@ -501,7 +526,7 @@ class Ansiblator(cmd.Cmd):
     self.selected = {"file": "", "servers": set(), "groups": set(), "tags": set(), "skiptags": set()}
 
   @need_inventory
-  def do_show(self, arg):
+  def do_show(self, arg=""):
     """Affiche les informations lié au déploiement en cours
     Usage : show
     Alias : s"""
